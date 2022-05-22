@@ -1,0 +1,141 @@
+---
+title: "Practical Machine Learning Course Project"
+author: "Kazim"
+date: "22/05/2022"
+output: html_document
+---
+
+# **Overview**
+
+This is the final report for Coursera’s Practical Machine Learning course, as part of the Data Science Specialization track offered by John Hopkins.
+
+In this project, we will use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants to predict the manner in which they did the exercise. This is the “classe” variable in the training set. We train 4 models: Decision Tree, Random Forest, Gradient Boosted Trees, Support Vector Machine using k-folds cross validation on the training set. We then predict using a validation set randomly selected from the training csv data to obtain the accuracy and out of sample error rate. Based on those numbers, we decide on the best model, and use it to predict 20 cases using the test csv set.
+
+# **Loading Library**
+```{r}
+library(knitr)
+library(caret)
+library(rpart)
+library(rpart.plot)
+library(rattle)
+library(randomForest)
+library(corrplot)
+
+# Setting Seed
+set.seed(12345)
+```
+
+# **Loading Dataset & Cleaning**
+```{r}
+# set the URL for the download
+UrlTrain <- "http://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+UrlTest  <- "http://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+
+# download the datasets
+training <- read.csv(url(UrlTrain))
+testing  <- read.csv(url(UrlTest))
+
+# create a partition with the training dataset 
+inTrain  <- createDataPartition(training$classe, p=0.7, list=FALSE)
+TrainSet <- training[inTrain, ]
+TestSet  <- training[-inTrain, ]
+dim(TrainSet);dim(TestSet)
+```
+
+Both created datasets have 160 variables. Those variables have plenty of NA, that can be removed with the cleaning procedures below. The Near Zero variance (NZV) variables are also removed and the ID variables as well.
+
+```{r}
+# remove variables with Nearly Zero Variance
+NZV <- nearZeroVar(TrainSet)
+TrainSet <- TrainSet[, -NZV]
+TestSet  <- TestSet[, -NZV]
+dim(TrainSet);dim(TestSet)
+```
+
+```{r}
+# remove variables that are mostly NA
+AllNA    <- sapply(TrainSet, function(x) mean(is.na(x))) > 0.95
+TrainSet <- TrainSet[, AllNA==FALSE]
+TestSet  <- TestSet[, AllNA==FALSE]
+dim(TrainSet); dim(TestSet)
+```
+
+```{r}
+# remove identification only variables (columns 1 to 5)
+TrainSet <- TrainSet[, -(1:5)]
+TestSet  <- TestSet[, -(1:5)]
+dim(TrainSet);dim(TestSet)
+```
+With the cleaning process above, the number of variables for the analysis has been reduced to 54 only.
+
+# **Exploratory Data Analysis**
+```{r}
+corMatrix <- cor(TrainSet[, -54])
+corrplot(corMatrix, order = "FPC", method = "color", type = "lower", tl.cex = 0.8, tl.col = rgb(0, 0, 0))
+```
+The highly correlated variables are shown in dark colors in the graph above.
+
+# **Prediction Model Building**
+Three methods will be applied to model the regressions (in the Train dataset) and the best one (with higher accuracy when applied to the Test dataset) will be used for the quiz predictions. The methods are: Random Forests, Decision Tree and Generalized Boosted Model, as described below.
+A Confusion Matrix is plotted at the end of each analysis to better visualize the accuracy of the models.
+
+## **Method 1 - Random Forest**
+```{r}
+# model fit
+set.seed(12345)
+controlRF <- trainControl(method="cv", number=3, verboseIter=FALSE)
+modFitRandForest <- train(classe ~ ., data=TrainSet, method="rf",trControl=controlRF)
+modFitRandForest$finalModel
+```
+
+```{r}
+# prediction on Test dataset
+predictRandForest <- predict(modFitRandForest, newdata=TestSet)
+confMatRandForest <- confusionMatrix(predictRandForest, factor(TestSet$classe))
+confMatRandForest
+```
+
+## **Method 2 - Decision Trees**
+```{r}
+# model fit
+set.seed(12345)
+modFitDecTree <- rpart(classe ~ ., data=TrainSet, method="class")
+fancyRpartPlot(modFitDecTree)
+```
+
+```{r}
+# prediction on Test dataset
+predictDecTree <- predict(modFitDecTree, newdata=TestSet, type="class")
+confMatDecTree <- confusionMatrix(predictDecTree, factor(TestSet$classe))
+confMatDecTree
+```
+
+## **Method 3 - GBM**
+```{r}
+# model fit
+set.seed(12345)
+controlGBM <- trainControl(method = "repeatedcv", number = 5, repeats = 1)
+modFitGBM  <- train(classe ~ ., data=TrainSet, method = "gbm",
+                    trControl = controlGBM, verbose = FALSE)
+modFitGBM$finalModel
+```
+
+```{r}
+# prediction on Test dataset
+predictGBM <- predict(modFitGBM, newdata=TestSet)
+confMatGBM <- confusionMatrix(predictGBM, factor(TestSet$classe))
+confMatGBM
+```
+
+# **Model Selection and Application to Test Data set**
+The accuracy of the 3 regression modeling methods above are:
+
+Random Forest : 0.9963
+Decision Tree : 0.7368
+GBM : 0.9839
+
+In that case, the Random Forest model will be applied to predict the 20 quiz results (testing dataset) as shown below.
+```{r}
+predictTEST <- predict(modFitRandForest, newdata=testing)
+predictTEST
+```
